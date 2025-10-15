@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+
+{% block title %}Dataset Management - Search Engine{% endblock %}
+
+{% block content %}
+<div class="search-hero" style="padding: 2rem 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+    <div class="container">
+        <div class="text-center text-white">
+            <h1 class="display-5 fw-bold mb-3">Dataset Management</h1>
+            <p class="lead">Manage and evaluate search performance with the Cranfield dataset</p>
+        </div>
+    </div>
+</div>
+
+<div class="container mt-4">
+    <!-- Статистика -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card stats-card text-white">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-chart-bar me-2"></i>Current Index
+                    </h5>
+                    <div class="display-6 fw-bold">{{ doc_count }}</div>
+                    <p class="card-text">Documents in search index</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card bg-dark text-white">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-database me-2"></i>Cranfield Dataset
+                    </h5>
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="h4 mb-0">{{ cranfield_stats.documents_loaded }}</div>
+                            <small>Documents</small>
+                        </div>
+                        <div class="col-4">
+                            <div class="h4 mb-0">{{ cranfield_stats.queries_loaded }}</div>
+                            <small>Queries</small>
+                        </div>
+                        <div class="col-4">
+                            <div class="h4 mb-0">{{ cranfield_stats.relevance_loaded }}</div>
+                            <small>Judgments</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление датасетом -->
+    <div class="card operation-card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-cogs me-2"></i>Dataset Operations
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <button class="btn btn-primary w-100 h-100 py-3" onclick="loadCranfield()">
+                        <i class="fas fa-upload me-2"></i>Load Cranfield Dataset
+                    </button>
+                    <div class="form-text text-center mt-2">Parse dataset files</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="d-flex flex-column h-100">
+                        <div class="input-group mb-2">
+                            <input type="number" id="docCount" class="form-control" placeholder="Documents to add" value="100" min="1">
+                        </div>
+                        <button class="btn btn-success w-100 py-2 flex-grow-1" onclick="addCranfieldDocs()">
+                            <i class="fas fa-plus me-2"></i>Add to Index
+                        </button>
+                    </div>
+                    <div class="form-text text-center mt-2">Add documents to search index</div>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-danger w-100 h-100 py-3" onclick="clearIndex()">
+                        <i class="fas fa-trash me-2"></i>Clear Index
+                    </button>
+                    <div class="form-text text-center mt-2">Remove all documents</div>
+                </div>
+            </div>
+            
+            <div id="operationStatus" class="mt-3"></div>
+            <div id="loading" class="loading mt-3 text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span class="ms-2">Processing...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Оценка запросов -->
+    <div class="card operation-card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-chart-line me-2"></i>Query Evaluation
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-8">
+                    <label class="form-label">Select query to evaluate:</label>
+                    <select id="querySelect" class="form-select">
+                        <option value="">Choose a query...</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-info w-100 mt-2" onclick="evaluateQuery()">
+                        <i class="fas fa-play me-2"></i>Evaluate Query
+                    </button>
+                </div>
+            </div>
+            
+            <div id="evaluationResult" class="mt-3"></div>
+        </div>
+    </div>
+
+    <!-- Список запросов -->
+    <div class="card operation-card">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-list me-2"></i>Available Queries
+                <small class="float-end">Showing first 50 queries</small>
+            </h5>
+        </div>
+        <div class="card-body">
+            <div id="queriesList" class="row"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Загрузка списка запросов при загрузке страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        loadQueries();
+        updateStats();
+    });
+
+    function showLoading(show) {
+        document.getElementById('loading').style.display = show ? 'block' : 'none';
+    }
+
+    function showStatus(message, type = 'info') {
+        const statusDiv = document.getElementById('operationStatus');
+        statusDiv.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show">
+            <i class="fas fa-${type === 'success' ? 'check' : 'info'}-circle me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>`;
+    }
+
+    async function loadCranfield() {
+        showLoading(true);
+        try {
+            const response = await fetch('/api/load_cranfield', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base_path: './cranfield' })
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                showStatus(result.message, 'success');
+                updateStats();
+                loadQueries();
+            } else {
+                showStatus('Error: ' + result.error, 'danger');
+            }
+        } catch (error) {
+            showStatus('Error: ' + error.message, 'danger');
+        }
+        showLoading(false);
+    }
+
+    async function addCranfieldDocs() {
+        const docCount = document.getElementById('docCount').value;
+        if (!docCount || docCount < 1) {
+            showStatus('Please enter a valid number of documents', 'warning');
+            return;
+        }
+
+        showLoading(true);
+        try {
+            const response = await fetch('/api/add_cranfield_docs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ doc_count: parseInt(docCount) })
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                showStatus(result.message, 'success');
+                updateStats();
+            } else {
+                showStatus('Error: ' + result.error, 'danger');
+            }
+        } catch (error) {
+            showStatus('Error: ' + error.message, 'danger');
+        }
+        showLoading(false);
+    }
+
+    async function clearIndex() {
+        if (!confirm('Are you sure you want to clear the index? All documents will be removed.')) {
+            return;
+        }
+        
+        showLoading(true);
+        try {
+            const response = await fetch('/api/clear_index', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                showStatus(result.message, 'success');
+                updateStats();
+            } else {
+                showStatus('Error: ' + result.error, 'danger');
+            }
+        } catch (error) {
+            showStatus('Error: ' + error.message, 'danger');
+        }
+        showLoading(false);
+    }
+
+    async function loadQueries() {
+        try {
+            const response = await fetch('/api/get_queries');
+            const queries = await response.json();
+            
+            // Обновляем dropdown
+            const select = document.getElementById('querySelect');
+            select.innerHTML = '<option value="">Choose a query...</option>';
+            queries.forEach(query => {
+                const option = document.createElement('option');
+                option.value = query.id;
+                option.textContent = `${query.id}: ${query.text.substring(0, 80)}${query.text.length > 80 ? '...' : ''}`;
+                select.appendChild(option);
+            });
+            
+            // Обновляем список
+            const listDiv = document.getElementById('queriesList');
+            if (queries.length === 0) {
+                listDiv.innerHTML = '<div class="col-12 text-center text-muted py-3">No queries loaded</div>';
+            } else {
+                listDiv.innerHTML = queries.map(query => `
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title text-primary">${query.id}</h6>
+                                <p class="card-text">${query.text}</p>
+                                <button class="btn btn-sm btn-outline-primary" onclick="setQuery('${query.id}')">
+                                    Select for Evaluation
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (error) {
+            console.error('Error loading queries:', error);
+        }
+    }
+
+    function setQuery(queryId) {
+        document.getElementById('querySelect').value = queryId;
+    }
+
+    async function evaluateQuery() {
+        const queryId = document.getElementById('querySelect').value;
+        if (!queryId) {
+            showStatus('Please select a query first', 'warning');
+            return;
+        }
+        
+        showLoading(true);
+        try {
+            const response = await fetch('/api/evaluate_query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query_id: queryId })
+            });
+            const result = await response.json();
+            
+            const resultDiv = document.getElementById('evaluationResult');
+            if (result.error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${result.error}</div>`;
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="card border-success">
+                        <div class="card-header bg-success text-white">
+                            <h6 class="mb-0">Evaluation Results: ${result.query_id}</h6>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text"><strong>Query:</strong> ${result.query_text}</p>
+                            <div class="row text-center">
+                                <div class="col-md-4">
+                                    <div class="card bg-light">
+                                        <div class="card-body">
+                                            <h5>Precision</h5>
+                                            <h2 class="text-primary">${result.precision}</h2>
+                                            <small class="text-muted">Relevant Retrieved / Retrieved</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card bg-light">
+                                        <div class="card-body">
+                                            <h5>Recall</h5>
+                                            <h2 class="text-success">${result.recall}</h2>
+                                            <small class="text-muted">Relevant Retrieved / Relevant</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card bg-light">
+                                        <div class="card-body">
+                                            <h5>F1 Score</h5>
+                                            <h2 class="text-info">${result.f1}</h2>
+                                            <small class="text-muted">Harmonic Mean</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row mt-3">
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h6>Retrieval Stats</h6>
+                                            <p class="mb-1">Retrieved: ${result.retrieved_count} docs</p>
+                                            <p class="mb-1">Relevant: ${result.relevant_count} docs</p>
+                                            <p class="mb-0">Relevant Retrieved: ${result.relevant_retrieved_count} docs</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h6>Effectiveness</h6>
+                                            <p class="mb-1">Precision: ${(result.precision * 100).toFixed(1)}%</p>
+                                            <p class="mb-1">Recall: ${(result.recall * 100).toFixed(1)}%</p>
+                                            <p class="mb-0">F1: ${(result.f1 * 100).toFixed(1)}%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            document.getElementById('evaluationResult').innerHTML = 
+                `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        }
+        showLoading(false);
+    }
+
+    async function updateStats() {
+        try {
+            const response = await fetch('/api/get_dataset_stats');
+            const stats = await response.json();
+            
+            // Обновляем статистику в реальном времени
+            document.querySelector('.stats-card .display-6').textContent = stats.total_documents;
+            document.querySelector('.bg-dark .row .col-4:first-child .h4').textContent = stats.cranfield_documents;
+            document.querySelector('.bg-dark .row .col-4:nth-child(2) .h4').textContent = stats.cranfield_queries;
+            document.querySelector('.bg-dark .row .col-4:last-child .h4').textContent = stats.cranfield_relevance;
+        } catch (error) {
+            console.error('Error updating stats:', error);
+        }
+    }
+</script>
+{% endblock %}

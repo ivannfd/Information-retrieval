@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="search-box">
+    <h1>Search Engine</h1>
+    <form action="/search" method="get">
+        <input type="text" name="q" placeholder="Enter your search query..." value="{{ query }}" style="width: 500px; padding: 10px;">
+        <button type="submit" style="padding: 10px 20px;">Search</button>
+    </form>
+</div>
+
+{% if error %}
+    <div class="error" style="color: red; margin: 20px 0;">
+        <h3>Error:</h3>
+        <p>{{ error }}</p>
+    </div>
+{% endif %}
+
+<div class="results">
+    <h3>Results for "{{ query }}" ({{ results|length }} found):</h3>
+    
+    {% for result in results %}
+    <div class="result" style="border: 1px solid #ddd; margin: 15px 0; padding: 15px; border-radius: 5px;">
+        <h4 style="margin: 0 0 10px 0;">{{ result.title }}</h4>
+        <p style="margin: 5px 0;"><strong>Author:</strong> {{ result.author }}</p>
+        <p style="margin: 10px 0;">{{ result.preview }}</p>
+        <small style="color: #666;">Document ID: {{ result.id }}</small>
+    </div>
+    {% else %}
+    <p>No results found.</p>
+    {% endfor %}
+</div>
+{% endblock %}
